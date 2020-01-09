@@ -21,7 +21,7 @@
 ## - norm.paretro (normalise to zero mean and standard variation)
 ## - norm.range (normalise to distribution range)
 ## - ppm (calculate parts per million deviation of two values)
-## - indentify.compound (identify a compound based on retention time and exact mass)
+## - annotate.compound (annotate a compound based on retention time and exact mass)
 ##
 ## The following packages are necessary for this library: ggplot2, gridExtra, ggrepel, MSnbase
 
@@ -143,65 +143,82 @@ normalise  <- function(matrix,
     }
 
     return(matrix.normalised)
-    
+
 }
 
 ## Definition for batch correction
 batchCorrection <- function(matrix, # data matrix to perform correction on
-                            order, # order of the analysis
-                            day, # day of the analysis to allocate subsets of the matrix
+                            order, # specifies order for specific day
+                            batch, # specifies which sample is part of which batch
                             class, # specifies classes to allocate QC samples
-                            sub = NA, # specifies the subset that needs to be corrected
+                            sub = NA, # specifies those features that need to be corrected
                             poly = 3, # specifies the polynomial of the linear model
-                            plot = NA) # specifiesl-pac
-    the number of features that will be plottet
+                            plot = NA) # specifies the number of features that will be plottet
 { 
 
-    ## Filter sub, if specified
-    if(!is.na(sub)[1]) {
+    ## Perform algorithm for each batch
+    for(i in 1:length(unique(batch))) {
 
-        if(length(sub[sub == TRUE]) == 0) {
+        ## Subset a batch
+        batch <- matrix[,batch == unique(batch)[1]]
 
-            stop("Subset is Empty!")
+        ## Filter features to be corrected if sub is specified
+        if(!is.na(sub)[1]) {
+
+            if(length(sub[sub == TRUE]) == 0) {
+
+                stop("Subset is Empty!")
+
+            }
+
+            matrix.uncorrected <- batch[sub == FALSE,]
+            matrix.to.correct <- batch[sub == TRUE,]
 
         }
 
+        ## Filter QC samples
+        matrix.pre.corr <- as.data.frame(cbind(order, t(matrix.to.correct)))
+        matrix.qc <- matrix.pre.corr[class == "QC",]
+        matrix.qc.median <- apply(matrix.qc[,-1], 2, FUN = median)
+
+        ## Calculate difference of each data point to the median of the measurements
+        matrix.qc.diff <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
+                                               nrow = length(matrix.qc[,1])))
+
+        for (i in 1:length(matrix.qc.diff)) {
+
+            for (j in 1:length(matrix.qc.diff[,1])) {
+
+                matrix.qc.diff[j,i] <-  matrix.qc.median[i] - (matrix.qc[,-1])[j,i]
+
+            }
+
+        }
+
+        ## Calculate the correction factor for the deviation
+        matrix.qc.factor <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
+                                                 nrow = length(matrix.qc[,1])))
+
+        for (i in 1:length(matrix.qc.factor)) {
+
+            for (j in 1:length(matrix.qc.factor[,1])) {
+
+                matrix.qc.factor[j,i] <-  matrix.qc.diff[j,i] / matrix.qc.median[i]
+
+            }
+
+        }
         
-        matrix.uncorrected <- matrix[sub == FALSE,]
-        matrix.to.correct <- matrix[sub == TRUE,]
-
     }
 
-    ## Filter QC measurements
-    matrix.pre.corr <- as.data.frame(cbind(order, t(matrix.to.correct)))
-    matrix.qc <- matrix.pre.corr[class == "QC",]
-    matrix.qc.median <- apply(matrix.qc[,-1], 2, FUN = median)
+    
 
-    ## Calculate difference of each data point to the median of the measurements
-    matrix.qc.diff <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
-                                           nrow = length(matrix.qc[,1])))
-    for (i in 1:length(matrix.qc.diff)) {
 
-        for (j in 1:length(matrix.qc.diff[,1])) {
 
-            matrix.qc.diff[j,i] <-  matrix.qc.median[i] - (matrix.qc[,-1])[j,i]
+    
+    
 
-        }
 
-    }
-
-    ## Calculate the correction factor for the deviation
-    matrix.qc.factor <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
-                                             nrow = length(matrix.qc[,1])))
-    for (i in 1:length(matrix.qc.factor)) {
-
-        for (j in 1:length(matrix.qc.factor[,1])) {
-
-            matrix.qc.factor[j,i] <-  matrix.qc.diff[j,i] / matrix.qc.median[i]
-
-        }
-
-    }
     matrix.qc.factor <- cbind(matrix.qc$order, matrix.qc.factor)
     rownames(matrix.qc.factor) <- rownames(matrix.qc)
     colnames(matrix.qc.factor) <- colnames(matrix.qc)
@@ -734,7 +751,7 @@ log10.matrix <- function(matrix) {
 }
 
 ##
-## Identification of compounds in XCMS results
+## Annotation of compounds in XCMS results
 ##
 
 ## Calculate parts per million
@@ -748,8 +765,8 @@ ppm <- function(x, # Comparable quantity
 
 }
 
-## Identify compounds in XCMS peaklists (e.g. internal standards)
-identify.compound  <-  function(data, # XCMS peaklist
+## Annotate compounds in XCMS peaklists (e.g. internal standards)
+annotate.compound  <-  function(data, # XCMS peaklist
                                 compound.name, # name(s) of compound(s)
                                 compound.mz, # exact mass(es) of compound(s)
                                 compound.rt, # retention time(s) of compound(s)
