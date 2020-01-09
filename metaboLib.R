@@ -1,17 +1,18 @@
 ##
+##
 ## metabolib.R
+##
 ##
 ## This library is a reference of functions for untargeted metabolomics.
 ## It contains the following functions:
 ##
 ## - normalise (normalisation of feature matrix by different approaches)
-## - batchCorrection (perform batch correction using QC samples)
-## - volcano (significance of features based on foldchange
-##            and Welch two-sample t-test)
+## - evalVolcano (significance of features based on foldchange and t-tests)
 ## - evalANOVA (significance of features based von one-way-ANOVA)
 ## - evalKruskalWallis (significance of features based von Kruskal-Wallis-test)
 ## - cv (calculate coefficient of variation)
 ## - iqr (calculate inter quantile range)
+## - norm.single.batch (normalize batch drifts)
 ## - norm.sum (normalise to sum)
 ## - norm.mean (normalise to mean)
 ## - norm.median (normalise to median)
@@ -20,10 +21,11 @@
 ## - norm.auto (normalise to zero mean and unit variance)
 ## - norm.paretro (normalise to zero mean and standard variation)
 ## - norm.range (normalise to distribution range)
+## - log10.matrix (log10 transformation after replacing 0s by surrogate LOD)
 ## - ppm (calculate parts per million deviation of two values)
 ## - annotate.compound (annotate a compound based on retention time and exact mass)
 ##
-## The following packages are necessary for this library: ggplot2, gridExtra, ggrepel, MSnbase
+## This library depends on the following packages: ggplot2, gridExtra, ggrepel, MSnbase
 
 
 ##
@@ -72,11 +74,11 @@ normalise  <- function(matrix,
                                 "mean" = apply(matrix, margin, norm.mean),
                                 "median" = apply(matrix, margin, norm.median),
                                 "iqr" = apply(matrix, margin, norm.iqr),
-                                "tic" = mapply(norm.tic, matrix, ref),
+                                "tic" = norm.tic(x = matrix, margin = margin, raw.files = ref),
                                 "auto" = apply(matrix, margin, norm.auto),
                                 "paretro" = apply(matrix, margin, norm.paretro),
                                 "range" = apply(matrix, margin, norm.range),
-                                "is" = mapply(norm.is, matrix, rep(ref, length(matrix[1,])))
+                                "is" = norm.is(x = matrix, margin = margin, is = ref)
                                 )
 
     ## Reconstruct column names after mapply
@@ -146,174 +148,15 @@ normalise  <- function(matrix,
 
 }
 
-## Definition for batch correction
-batchCorrection <- function(matrix, # data matrix to perform correction on
-                            order, # specifies order for specific day
-                            batch, # specifies which sample is part of which batch
-                            class, # specifies classes to allocate QC samples
-                            sub = NA, # specifies those features that need to be corrected
-                            poly = 3, # specifies the polynomial of the linear model
-                            plot = NA) # specifies the number of features that will be plottet
-{ 
-
-    ## Perform algorithm for each batch
-    for(i in 1:length(unique(batch))) {
-
-        ## Subset a batch
-        batch <- matrix[,batch == unique(batch)[1]]
-
-        ## Filter features to be corrected if sub is specified
-        if(!is.na(sub)[1]) {
-
-            if(length(sub[sub == TRUE]) == 0) {
-
-                stop("Subset is Empty!")
-
-            }
-
-            matrix.uncorrected <- batch[sub == FALSE,]
-            matrix.to.correct <- batch[sub == TRUE,]
-
-        }
-
-        ## Filter QC samples
-        matrix.pre.corr <- as.data.frame(cbind(order, t(matrix.to.correct)))
-        matrix.qc <- matrix.pre.corr[class == "QC",]
-        matrix.qc.median <- apply(matrix.qc[,-1], 2, FUN = median)
-
-        ## Calculate difference of each data point to the median of the measurements
-        matrix.qc.diff <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
-                                               nrow = length(matrix.qc[,1])))
-
-        for (i in 1:length(matrix.qc.diff)) {
-
-            for (j in 1:length(matrix.qc.diff[,1])) {
-
-                matrix.qc.diff[j,i] <-  matrix.qc.median[i] - (matrix.qc[,-1])[j,i]
-
-            }
-
-        }
-
-        ## Calculate the correction factor for the deviation
-        matrix.qc.factor <- as.data.frame(matrix(ncol = length(matrix.qc) - 1,
-                                                 nrow = length(matrix.qc[,1])))
-
-        for (i in 1:length(matrix.qc.factor)) {
-
-            for (j in 1:length(matrix.qc.factor[,1])) {
-
-                matrix.qc.factor[j,i] <-  matrix.qc.diff[j,i] / matrix.qc.median[i]
-
-            }
-
-        }
-        
-    }
-
-    
-
-
-
-    
-    
-
-
-    matrix.qc.factor <- cbind(matrix.qc$order, matrix.qc.factor)
-    rownames(matrix.qc.factor) <- rownames(matrix.qc)
-    colnames(matrix.qc.factor) <- colnames(matrix.qc)
-
-    ## Determine correction factor of remaining data points by linear regression
-    matrix.factor <- as.data.frame(matrix(ncol = length(matrix.pre.corr),
-                                          nrow = length(matrix.pre.corr[,1])))
-    rownames(matrix.factor) <- rownames(matrix.pre.corr)
-    colnames(matrix.factor) <- colnames(matrix.pre.corr)
-    matrix.factor$order <- order
-    for (i in 1:(length(matrix.qc.factor) - 1)) {
-
-        lm <- lm(matrix.qc.factor[,i+1] ~ poly(order, poly), data = matrix.qc.factor)
-        matrix.factor[,i + 1] <- predict(lm, newdata = data.frame(order = order))
-
-    }
-
-    ## Correct all data points by their correction factor
-    matrix.corrected <- as.data.frame(matrix(ncol = length(matrix.pre.corr),
-                                             nrow = length(matrix.pre.corr[,1])))
-    rownames(matrix.corrected) <- rownames(matrix.pre.corr)
-    colnames(matrix.corrected) <- colnames(matrix.pre.corr)
-    matrix.corrected$order <- order
-    for (i in 1:(length(matrix.corrected) - 1)) {
-        for (j in 1:length(matrix.corrected[,1])) {
-
-            matrix.corrected[j, i + 1] <-  matrix.pre.corr[j, i + 1] +
-                matrix.pre.corr[j, i + 1] *
-                matrix.factor[j, i + 1]
-
-        }
-
-    }
-
-    ## Plot native and corrected data points
-    if (!is.na(plot)) {
-
-        if(plot > length(sub[sub == TRUE])){
-
-            plot  <- length(sub[sub == TRUE])
-            
-        }
-
-        original.long <- matrix.pre.corr[class == "QC", 2:(1+plot)]
-        original.long$Analysis <- rownames(original.long)
-        original.long <- reshape(original.long, direction = "long",
-                                 varying = names(original.long)[names(original.long) != "Analysis"],
-                                 v.names = "area", idvar = "Analysis", timevar = "Feature",
-                                 times = names(original.long)[names(original.long) != "Analysis"])
-
-        corrected.long <- matrix.corrected[class == "QC", 2:(1+plot)]
-        corrected.long$Analysis <- rownames(corrected.long)
-        corrected.long <- reshape(corrected.long, direction = "long",
-                                   varying = names(corrected.long)[names(corrected.long) != "Analysis"],
-                                   v.names = "area", idvar = "Analysis", timevar = "Feature",
-                                   times = names(corrected.long)[names(corrected.long) != "Analysis"])
-
-        p1 <- ggplot(data = original.long, aes(x = Feature, y = area)) +
-            geom_boxplot(outlier.colour = "red") +
-            ggtitle("Original Data") +
-            xlab("Feature") +
-            ylab("Area") +
-            coord_flip() +
-            theme_classic() +
-            theme(axis.text.y = element_blank(),
-                  axis.ticks = element_blank()
-                  )
-        p2 <- ggplot(data = corrected.long, aes(x = Feature, y = area)) +
-            geom_boxplot(outlier.colour = "red") +
-            ggtitle("Batch-Corrected Data") +
-            xlab("Feature") +
-            ylab("Area") +
-            coord_flip() +
-            theme_classic() +
-            theme(axis.text.y = element_blank(),
-                  axis.ticks = element_blank())
-
-        grid.arrange(arrangeGrob(p1, p2, ncol = 2),
-                     top = paste0("Batch correction using poly = ", poly))
-
-    }
-
-    ## Return the complete matrix
-    return(rbind(matrix.uncorrected, t(matrix.corrected[,-1])))
-
-}
-
 ## Definition for univariate statistics
 evalVolcano <- function(features,
                         names,
                         classes,
                         class.1,
                         class.2,
+                        param = TRUE,
                         p.value,
-                        foldchange,
+                        fc.thresh,
                         plot = TRUE,
                         labels = FALSE) {
 
@@ -322,31 +165,58 @@ evalVolcano <- function(features,
     
     summary <- as.data.frame(matrix(data = NA,
                                     nrow = length(features[, 1]),
-                                    ncol = 6,
+                                    ncol = 7,
                                     dimnames = list(NULL, c("feature",
                                                             "foldchange",
+                                                            "log2.foldchange",
                                                             "tstat",
                                                             "pvalue",
                                                             "Significant",
                                                             "label"))))
     summary$feature <- names
-    
+
     for (i in 1:length(features[, 1])) {
         
-        summary$foldchange[i] <- mean(features.class.1[i, ])/mean(features.class.2[i,])
-        
-    }
-    for (i in 1:length(features[, 1])) {
-        
-        t <- t.test(features.class.1[i, ], features.class.2[i, ])
-        summary$tstat[i] <- t$statistic
-        summary$pvalue[i] <- t$p.value
+        summary$foldchange[i] <- mean(features.class.2[i, ])/mean(features.class.1[i,])
         
     }
 
+    if(param == TRUE) {
+
+        for (i in 1:length(features[, 1])) {
+
+
+            t <- t.test(features.class.1[i, ], features.class.2[i, ])
+            summary$tstat[i] <- t$statistic
+            summary$pvalue[i] <- t$p.value
+
+        }
+        
+    }
+    if(param == FALSE) {
+
+        for (i in 1:length(features[, 1])) {
+
+            t <- t.test(features.class.1[i, ], features.class.2[i, ])
+            summary$tstat[i] <- t$statistic
+            summary$pvalue[i] <- t$p.value
+
+        }
+    }
+
+    ## Adopted from MetaboAnalyst
+    ## https://github.com/xia-lab/MetaboAnalystR/blob/e7a981fc1c123009ecaacfbbcec7749f0fb530d7/R/stats_univariates.R
+    ##
+    ## Check if foldchange threshold is greater 1
+    
+    fc.thresh = ifelse(fc.thresh > 1, fc.thresh, 1 / fc.thresh)
+    max.fc.thresh <- log2(fc.thresh)
+    min.fc.thresh <- log2(1/fc.thresh)
+
+    summary$log2.foldchange <- log2(summary$foldchange)
     summary$Significant <- ifelse(summary$pvalue < p.value &
-                                       (summary$foldchange < -(foldchange) |
-                                        summary$foldchange > foldchange), "TRUE", "FALSE")
+                                       (summary$log2.foldchange < min.fc.thresh |
+                                        summary$log2.foldchange > max.fc.thresh), "TRUE", "FALSE")
     summary$label <- names
     summary$label[summary$Significant == "FALSE"] <- ""
 
@@ -354,20 +224,42 @@ evalVolcano <- function(features,
 
         coloursBoolean <- c("TRUE" = "red", "FALSE" = "grey")
 
-        print(
-            ggplot(summary, aes(x = log2(foldchange), y = -log10(pvalue))) +
-            geom_point(size = 3, aes(color = Significant)) +
-            scale_color_manual(values = coloursBoolean) +
-            geom_text_repel(point.padding = 0.2,
-                            data = subset(summary, summary$Significant == TRUE),
-                            aes(label = summary$feature[summary$Significant == TRUE])) +
-            ggtitle(label = paste0("Volcano Plot of ", class.1, " and ", class.2)) +
-            xlab("log2(Fold Change)") +
-            ylab("-log10(p-Value)") +
-            theme_bw() +
-            theme(legend.position = "bottom")
-        )
-        
+        if(labels == "TRUE") {
+            print(
+
+                ggplot(summary, aes(x = log2.foldchange, y = -log10(pvalue))) +
+                geom_point(size = 3, aes(color = Significant)) +
+                scale_color_manual(values = coloursBoolean) +
+                geom_hline(yintercept = -log10(p.value), linetype = "dashed") +
+                geom_vline(xintercept = min.fc.thresh, linetype = "dashed") +
+                geom_vline(xintercept = max.fc.thresh, linetype = "dashed") +
+                geom_text_repel(point.padding = 0.2,
+                                data = subset(summary, summary$Significant == TRUE),
+                                aes(label = summary$feature[summary$Significant == TRUE])) +
+                ggtitle(label = paste0("Volcano Plot of ", class.1, " and ", class.2)) +
+                xlab("log2(Fold Change)") +
+                ylab("-log10(p-Value)") +
+                theme_bw() +
+                theme(legend.position = "bottom")
+            )
+        } else {
+            print(
+
+                ggplot(summary, aes(x = log2(foldchange), y = -log10(pvalue))) +
+                geom_point(size = 3, aes(color = Significant)) +
+                scale_color_manual(values = coloursBoolean) +
+                geom_hline(yintercept = -log10(p.value), linetype = "dashed") +
+                geom_vline(xintercept = log2(fc.thresh), linetype = "dashed") +
+                geom_vline(xintercept = log2(1/fc.thresh), linetype = "dashed") +
+                ggtitle(label = paste0("Volcano Plot of ", class.1, " and ", class.2)) +
+                xlab("log2(Fold Change)") +
+                ylab("-log10(p-Value)") +
+                theme_bw() +
+                theme(legend.position = "bottom")
+            )
+            
+        }
+
     }
     
     return(summary)
@@ -397,12 +289,13 @@ evalANOVA <- function (features,
         sum <- unlist(summary(aov(features[,i]~classes)))
         summary$pvalue[i] <- sum["Pr(>F)1"]
     }
-
     summary$Significant <- ifelse(summary$pvalue < p.value, "TRUE", "FALSE")
     summary$label <- names
     summary$label[summary$Significant == "FALSE"] <- ""
 
     if(plot == TRUE) {
+
+        plot
 
         coloursBoolean <- c("TRUE" = "red", "FALSE" = "grey")
         
@@ -661,6 +554,150 @@ iqr <- function(x) {
 ## Normalisation functions
 ##
 
+## Normalise batch drifts in single batch by qc samples
+norm.single.batch <- function(matrix,
+                                        # matrix; data matrix to perform correction on
+                                        # samples in columns, features in rows
+                              class,
+                                        # character, vector; specifies classes to allocate
+                                        # QC samples
+                              order,
+                                        # numeric, vector; specifies order to correct by
+                              type = c("pooled", "surrogate"),
+                                        # character; specifies wether to directly correct
+                                        # features by QC drift (pooled) or use
+                                        # median drift to correct all (surrogate)
+                              standard,
+                                        # boolean, vector; specifies which features are
+                                        # qualified to act as a standard
+                              poly,
+                                        # numeric; specifies polynomial of the linear model
+                              plot = NA)
+                                        # numeric; specifies the number of features to plot
+
+{
+    
+    ## Filter QC samples
+    if(type == "pooled") {
+        
+
+        matrix.to.correct <- as.data.frame(t(matrix[standard == "TRUE",]))
+        matrix.rest <- as.data.frame(t(matrix[standard == "FALSE",]))
+        qc <- matrix.to.correct[class == "QC",]
+        qc.median <- apply(qc, 2, FUN = median)
+
+        ## Calculate the correction factor based on median
+        qc.factor <- (qc.median - qc) / qc.median
+
+        ## Determine correction factor of remaining data points by linear regression
+        qc.factor$order <- order[class == "QC"]
+        correction.factor <- as.data.frame(matrix(ncol = length(matrix.to.correct[1,]),
+                                                  nrow = length(matrix.to.correct[,1])))
+        rownames(correction.factor) <- rownames(matrix.to.correct)
+        colnames(correction.factor) <- colnames(matrix.to.correct)
+        correction.factor$order <- order
+    
+
+
+        for (i in 1:(length(qc.factor) - 1)) {
+
+            lm <- lm(qc.factor[,i] ~ poly(order, poly), data = qc.factor)
+            correction.factor[,i] <- predict(lm, newdata = data.frame(order = order))
+
+        }
+
+        matrix.corrected <- matrix.to.correct / correction.factor[names(correction.factor) != "order"]
+        matrix.post.corr <- cbind(matrix.to.correct, matrix.rest)
+
+        ## Check number of features to plot
+        if(plot > length(standard[standard == TRUE])){
+
+            plot  <- length(standard[standard == TRUE])
+            
+        }
+        
+    }
+
+    if(type == "surrogate") {
+        
+
+        matrix <- as.data.frame(t(matrix))
+        qc <- matrix[class == "QC", standard == "TRUE"]
+        qc.median <- apply(qc, 2, FUN = median)
+
+        ## Calculate the correction factor based on median
+        qc.factor <- (qc.median - qc) / qc.median
+
+        ## Determine correction factor of remaining data points by linear regression
+        qc.factor$order <- order[class == "QC"]
+        correction.factor <- as.data.frame(matrix(ncol = length(matrix[1,standard == "TRUE"]),
+                                                  nrow = length(matrix[,1])))
+        rownames(correction.factor) <- rownames(matrix)
+        colnames(correction.factor) <- colnames(matrix[, standard == "TRUE"])
+        correction.factor$order <- order
+    
+
+
+        for (i in 1:(length(qc.factor) - 1)) {
+
+            lm <- lm(qc.factor[,i] ~ poly(order, poly), data = qc.factor)
+            correction.factor[,i] <- predict(lm, newdata = data.frame(order = order))
+
+        }
+
+        correction.factor.median <- apply(correction.factor[names(correction.factor) != "order"], 1,
+                                          FUN = median)
+        matrix.post.corr <- matrix / correction.factor.median
+
+    }
+
+    ## Plot native and corrected data points
+    if (!is.na(plot)) {
+
+        original.long <- as.data.frame(t(matrix)[,1:(1+plot)])
+        original.long$Analysis <- rownames(original.long)
+        original.long <- reshape(original.long, direction = "long",
+                                 varying = names(original.long)[names(original.long) != "Analysis"],
+                                 v.names = "area", idvar = "Analysis", timevar = "Feature",
+                                 times = names(original.long)[names(original.long) != "Analysis"])
+
+        corrected.long <- matrix.post.corr[,1:(1+plot)]
+        corrected.long$Analysis <- rownames(corrected.long)
+        corrected.long <- reshape(corrected.long, direction = "long",
+                                   varying = names(corrected.long)[names(corrected.long) != "Analysis"],
+                                   v.names = "area", idvar = "Analysis", timevar = "Feature",
+                                   times = names(corrected.long)[names(corrected.long) != "Analysis"])
+
+        p1 <- ggplot(data = original.long, aes(x = Feature, y = area)) +
+            geom_boxplot(outlier.colour = "red") +
+            ggtitle("Original Data") +
+            xlab("Feature") +
+            ylab("Area") +
+            coord_flip() +
+            theme_classic() +
+            theme(axis.text.y = element_blank(),
+                  axis.ticks = element_blank()
+                  )
+        p2 <- ggplot(data = corrected.long, aes(x = Feature, y = area)) +
+            geom_boxplot(outlier.colour = "red") +
+            ggtitle("Batch-Corrected Data") +
+            xlab("Feature") +
+            ylab("Area") +
+            coord_flip() +
+            theme_classic() +
+            theme(axis.text.y = element_blank(),
+                  axis.ticks = element_blank())
+
+        grid.arrange(arrangeGrob(p1, p2, ncol = 2),
+                     top = paste0("Batch correction using poly = ", poly))
+
+    }
+
+
+    ## Return corrected matrix
+    return(t(matrix.post.corr))
+
+}
 
 ## Normalise vector to its sum, assuming constant sum of 1000
 ## Adopted from https://github.com/xia-lab/MetaboAnalystR/blob/master/R/general_norm_utils.R
@@ -673,14 +710,14 @@ norm.sum <- function(x) {
 ## Normalise vector to its mean
 norm.mean <- function(x) {
 
-    return(x - mean(x))
+    return(abs(x - mean(x)))
     
 }
 
 ## Normalise vector to its median
 norm.median <- function(x) {
 
-    return(x - median(x))
+    return(abs(x - median(x)))
 
 }
 
@@ -693,11 +730,31 @@ norm.iqr <- function(x){
 }
 
 ## Normalise vector to total ion count of the analysis
-norm.tic <- function(x, raw.file) {
+norm.tic <- function(x, margin, raw.files) {
 
-    raw <- readMSData(raw.file, msLevel = 1, mode  = "onDisk")
+    if(margin == 1){
+        for(i in 1:nrow(x)) {
 
-        return(x / sum(ionCount(raw)))
+            raw <- readMSData(raw.files[i], msLevel = 1, mode  = "onDisk")
+            tic <- sum(ionCount(raw))
+            x[i, ] <- x[i, ] / tic
+
+        }
+    }
+
+    if(margin == 2) {
+
+        for(i in 1:ncol(x)) {
+
+            raw <- readMSData(raw.files[i], msLevel = 1, mode  = "onDisk")
+            tic <- sum(ionCount(raw))
+            x[, i] <- x[, i] / tic
+
+        }
+
+    }
+
+        return(x)
 
 }
 
@@ -731,9 +788,27 @@ norm.range <- function(x) {
     
 }
 
-norm.is <- function(x, is) {
+norm.is <- function(x, margin, is) {
 
-    return(x / x[is])
+    if(margin == 1){
+        for(i in 1:nrow(x)) {
+
+            x[i, ] <- x[i, ] / x[i,is]
+            
+        }
+    }
+
+    if(margin == 2) {
+
+        for(i in 1:ncol(x)) {
+
+            x[, i] <- x[, i] / x[is, i]
+
+        }
+
+    }
+
+    return(x)
 
 }
 
