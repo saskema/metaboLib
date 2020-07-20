@@ -57,13 +57,9 @@ library("MSnbase")
 
 
 ## Normalisation of features by different measures
-normalise  <- function(matrix,
-                       margin,
-                       method = c("sum", "mean", "median", "iqr", "tic",
-                                  "auto", "paretro", "range", "is"),
-                       ref = NA,
-                       plot = NA,
-                       ...) {
+normalise <- function(matrix, margin, method = c("sum", "mean",
+                       "median", "iqr", "tic", "auto", "paretro",
+                       "range", "is"), ref = NA, plot = NA, ...) {
 
 
     ## Initial checks
@@ -71,88 +67,31 @@ normalise  <- function(matrix,
 
         if(is.na(ref[1])) {
 
-            switch(method,
-                   "tic" = stop("Raw files of the analyses are necessary for TIC normalisation!"),
-                   "is" = stop("Please specify a row or column number that represents the internal standard!")
+            switch(method, "tic" =
+                   stop("Raw files of the analyses are necessary for TIC normalisation!"),
+                   "is" =
+                   stop("Please specify a row or column number that represents the internal standard!")
                    )
             
         }
 
     }
 
-    ## Normalise data by method chosen
-    matrix.normalised <- switch(method,
-                                "sum" = apply(matrix, margin, norm.sum),
-                                "mean" = apply(matrix, margin, norm.mean),
-                                "median" = apply(matrix, margin, norm.median),
-                                "iqr" = apply(matrix, margin, norm.iqr),
-                                "tic" = norm.tic(x = matrix, margin = margin, raw.files = ref),
-                                "auto" = apply(matrix, margin, norm.auto),
-                                "paretro" = apply(matrix, margin, norm.paretro),
-                                "range" = apply(matrix, margin, norm.range),
-                                "is" = norm.is(x = matrix, margin = margin, is = ref)
-                                )
+    ## Normalise data by method chosen matrix.normalised <-
+    switch(method, "sum" = apply(matrix, margin, norm.sum), "mean" =
+    apply(matrix, margin, norm.mean), "median" = apply(matrix, margin,
+    norm.median), "iqr" = apply(matrix, margin, norm.iqr), "tic" =
+    norm.tic(x = matrix, margin = margin, raw.files = ref), "auto" =
+    apply(matrix, margin, norm.auto), "paretro" = apply(matrix,
+    margin, norm.paretro), "range" = apply(matrix, margin,
+    norm.range), "is" = norm.is(x = matrix, margin = margin, is = ref)
+    )
 
     ## Reconstruct column names after mapply
-    if(method %in% c("tic","is")) {
+    if(method %in%
+       c("tic","is")) {
 
         rownames(matrix.normalised) <- rownames(matrix)
-
-    }
-
-    ## Plot native and corrected data points
-    if (!is.na(plot)) {
-
-        original.long <- as.data.frame(matrix)[1:plot,]
-        original.long$name <- rownames(original.long)
-        original.long <- reshape(original.long, direction = "long",
-                                   varying = names(original.long)[names(original.long) != "name"],
-                                   v.names = "area", idvar = "name", timevar = "analysis",
-                                   times = names(original.long)[names(original.long) != "name"])
-
-        normalised.long <- as.data.frame(matrix.normalised)[1:plot,]
-        normalised.long$name <- rownames(normalised.long)
-        normalised.long <- reshape(normalised.long, direction = "long",
-                                   varying = names(normalised.long)[names(normalised.long) != "name"],
-                                   v.names = "area", idvar = "name", timevar = "analysis",
-                                   times = names(normalised.long)[names(normalised.long) != "name"])
-
-
-        plot.headline <- switch(method,
-                              "sum" = "Normalisation by sum of areas",
-                              "mean" = "Mean-centering",
-                              "median" = "Normalization by median of areas",
-                              "iqr" = "Normalization by interquantile range of areas",
-                              "tic" = "Normalization by total ion count of analysis",
-                              "auto" = "Normalization by zero mean and unit variance ",
-                              "paretro" = "Paretro scaling ",
-                              "range" = "Range SCaling"
-                              )
-
-        
-        p1 <- ggplot(data = original.long, aes(x = name, y = area)) +
-            geom_boxplot(outlier.colour = "red") +
-            ggtitle("Original Data") +
-            xlab("Feature") +
-            ylab("Area") +
-            coord_flip() +
-            theme_classic() +
-            theme(axis.text.y = element_blank(),
-                  axis.ticks = element_blank()
-                  )
-
-        p2 <- ggplot(data = normalised.long, aes(x = name, y = area)) +
-            geom_boxplot(outlier.colour = "red") +
-            ggtitle("Normalised Data") +
-            xlab("Feature") +
-            ylab("Area") +
-            coord_flip() +
-            theme_classic() +
-            theme(axis.text.y = element_blank(),
-                  axis.ticks = element_blank())
-
-        grid.arrange(arrangeGrob(p1, p2, ncol = 2),
-                     top = plot.headline)
 
     }
 
