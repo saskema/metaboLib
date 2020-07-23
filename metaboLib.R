@@ -19,6 +19,7 @@
 ## It contains the following functions:
 ##
 ## - normalise (normalisation of feature matrix by different approaches)
+## - batchCorrection (intra- and interbatch correction using pooled and surrogate QCs)
 ## - evalVolcano (significance of features based on foldchange and t-tests)
 ## - evalANOVA (significance of features based von one-way-ANOVA)
 ## - evalKruskalWallis (significance of features based von Kruskal-Wallis-test)
@@ -77,14 +78,17 @@ normalise <- function(matrix, margin, method = c("sum", "mean",
 
     }
 
-    ## Normalise data by method chosen matrix.normalised <-
-    switch(method, "sum" = apply(matrix, margin, norm.sum), "mean" =
-    apply(matrix, margin, norm.mean), "median" = apply(matrix, margin,
-    norm.median), "iqr" = apply(matrix, margin, norm.iqr), "tic" =
-    norm.tic(x = matrix, margin = margin, raw.files = ref), "auto" =
-    apply(matrix, margin, norm.auto), "paretro" = apply(matrix,
-    margin, norm.paretro), "range" = apply(matrix, margin,
-    norm.range), "is" = norm.is(x = matrix, margin = margin, is = ref)
+    ## Normalise data by method chosen
+    matrix.normalised <-switch(method,
+                               "sum" = apply(matrix, margin, norm.sum),
+                               "mean" = apply(matrix, margin, norm.mean),
+                               "median" = apply(matrix, margin, norm.median),
+                               "iqr" = apply(matrix, margin, norm.iqr),
+                               "tic" = norm.tic(x = matrix, margin = margin, raw.files = ref),
+                               "auto" = apply(matrix, margin, norm.auto),
+                               "paretro" = apply(matrix, margin, norm.paretro),
+                               "range" = apply(matrix, margin, norm.range),
+                               "is" = norm.is(x = matrix, margin = margin, is = ref)
     )
 
     ## Reconstruct column names after mapply
@@ -97,6 +101,128 @@ normalise <- function(matrix, margin, method = c("sum", "mean",
 
     return(matrix.normalised)
 
+}
+
+## Perform batch correction within and between batches
+batchCorrection <- function(matrix,
+                                        # matrix; data matrix to perform correction on
+                                        # samples in columns, features in rows
+                            class,
+                                        # character, vector; specifies classes to allocate
+                                        # QC samples
+                            order,
+                                        # numeric, vector; specifies order to correct by
+                            batch = NA,
+                                        # numeric vector; specifies batches to first correct
+                                        # on their own and finally between them
+                            type = c("pooled", "surrogate"),
+                                        # character; specifies wether to directly correct
+                                        # features by QC drift (pooled) or use
+                                        # median drift to correct all (surrogate)
+                            standard,
+                                        # boolean, vector; specifies which features are
+                                        # qualified to act as a standard
+                            poly,
+                                        # numeric; specifies polynomial of the linear model
+                            plot = NA)
+                                        # numeric; specifies the number of features to plot
+{
+
+    ## Initialise results table
+    matrix.post.corr <- NULL
+
+    ## Check if batch variable was given
+    if(is.na(batch[1]) | length(unique(batch)) == 1) {
+
+        matrix.post.corr <- norm.batch(matrix = matrix, class = class, order = order,
+                                       type = type, standard = standard, poly = poly,
+                                       plot = plot)
+        
+    } else if(type == "pooled.within.batches"){
+
+        ## Initialise remaining data frames and batch levels
+        matrix.pre.corr <- as.data.frame(matrix)
+        batches <- unique(batch)
+        class.new <- character(0)
+        order.new <- integer(0)
+        
+        ## Perform intrabatch correction
+        for(i in 1:length(batches)) {
+
+            matrix.post.corr <- cbind(matrix.post.corr,
+                                     norm.batch(matrix = matrix[,batch == batches[i]],
+                                                class = class[batch == batches[i]],
+                                                order = order[batch == batches[i]],
+                                                type = "pooled", standard = standard, poly = poly,
+                                                plot = NA))
+            
+            class.new <- append(class.new, class[batch == batches[i]])
+            order.new <- append(order.new, order[batch == batches[i]])
+
+        }
+
+        ## Plot interbatch normalisation results
+        qc.pre <- matrix.pre.corr[standard == TRUE, class == "QC"]
+        qc.post <- matrix.post.corr[standard == TRUE, class== "QC"]
+        par(mfrow=c(2,1),oma = c(0, 0, 2, 0))
+        boxplot(qc.pre, col = batch[class == "QC"],
+                main = "Before Batch Correction")
+        boxplot(qc.post[,sort(colnames(qc.post))], col = batch[class == "QC"],
+                main = "After Intrabatch Correction")
+        mtext("QC Samples", outer = TRUE, cex = 1.5)
+
+    } else if(type %in% c("pooled", "surrogate")){
+
+        ## Initialise remaining data frames and batch levels
+        matrix.pre.corr <- as.data.frame(matrix)
+        matrix.mid.corr <- NULL
+        batches <- unique(batch)
+        class.new <- character(0)
+        order.new <- integer(0)
+
+        ## Perform intrabatch correction
+        for(i in 1:length(batches)) {
+
+            matrix.mid.corr <- cbind(matrix.mid.corr,
+                                     norm.batch(matrix = matrix[,batch == batches[i]],
+                                                class = class[batch == batches[i]],
+                                                order = order[batch == batches[i]],
+                                                type = type, standard = standard, poly = poly,
+                                                plot = NA))
+            
+            class.new <- append(class.new, class[batch == batches[i]])
+            order.new <- append(order.new, order[batch == batches[i]])
+
+        }
+
+        ## Restore class names in class.new
+        for(i in 1:length(unique(class))) {
+
+            class.new[class.new == i] <- as.character(unique(class)[i])
+
+        }
+        
+        matrix.post.corr <- norm.batch(matrix = matrix.mid.corr, class = class.new,
+                                       order = order.new, type = type, standard = standard,
+                                       poly = poly, plot = plot)
+
+        ## Plot interbatch normalisation results
+        qc.pre <- matrix.pre.corr[standard == TRUE, class == "QC"]
+        qc.mid <- matrix.mid.corr[standard == TRUE, class.new == "QC"]
+        qc.post <- matrix.post.corr[standard == TRUE, class== "QC"]
+        par(mfrow=c(3,1),oma = c(0, 0, 2, 0))
+        boxplot(qc.pre, col = batch[class == "QC"],
+                main = "Before Batch Correction")
+        boxplot(qc.mid[,sort(colnames(qc.mid))], col = batch[class == "QC"],
+                main = "After Intrabatch Correction")
+        boxplot(qc.post[,sort(colnames(qc.post))], col = batch[class == "QC"],
+                main = "After Interbatch Correction")
+        mtext("QC Samples", outer = TRUE, cex = 1.5)
+        
+    }
+    
+    return(matrix.post.corr)
+    
 }
 
 ## Definition for univariate statistics
@@ -414,7 +540,6 @@ evalPCA <- function(matrix,
             ## Plot PCA scores with labels
             print(
                 ggplot(data = as.data.frame(pca$x[,1:2]), aes(x = PC1, y = PC2)) +
-                ##stat_ellipse(type = "norm") +
                 geom_point(size = 3, aes(col = Classes)) +
                 geom_text_repel(point.padding = 0.2, data = as.data.frame(pca$x[,1:2]),
                                 aes(label = rownames(matrix))) +
@@ -432,7 +557,6 @@ evalPCA <- function(matrix,
             ## Plot PCA scores without labels
             print(
                 ggplot(data = as.data.frame(pca$x[,1:2]), aes(x = PC1, y = PC2)) +
-                ##stat_ellipse(type = "norm") +
                 geom_point(size = 3, aes(col = Classes)) +
                 scale_color_manual(values = colours_classes) +
                 geom_hline(yintercept = 0) +
@@ -480,7 +604,6 @@ evalPCA <- function(matrix,
     
 }
 
-
 ##
 ## Univariate statistics functions
 ##
@@ -506,7 +629,7 @@ iqr <- function(x) {
 ##
 
 ## Normalise batch drifts in single batch by qc samples
-norm.single.batch <- function(matrix,
+norm.batch <- function(matrix,
                                         # matrix; data matrix to perform correction on
                                         # samples in columns, features in rows
                               class,
@@ -561,10 +684,14 @@ norm.single.batch <- function(matrix,
         matrix.post.corr <- cbind(matrix.to.correct, matrix.rest)
 
         ## Check number of features to plot
-        if(plot > length(standard[standard == TRUE])){
+        if(!is.na(plot)) {
 
-            plot  <- length(standard[standard == TRUE])
-            
+            if(plot > length(standard[standard == TRUE])){
+
+                plot  <- length(standard[standard == TRUE])
+
+            }
+
         }
         
     }
