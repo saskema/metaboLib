@@ -557,8 +557,8 @@ norm.single.batch <- function(matrix,
 
         }
 
-        matrix.corrected <- matrix.to.correct / correction.factor[names(correction.factor) != "order"]
-        matrix.post.corr <- cbind(matrix.to.correct, matrix.rest)
+        matrix.corrected <- matrix.to.correct / (1 + correction.factor[names(correction.factor) != "order"])
+        matrix.post.corr <- cbind(matrix.corrected, matrix.rest)
 
         ## Check number of features to plot
         if(plot > length(standard[standard == TRUE])){
