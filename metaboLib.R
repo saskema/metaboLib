@@ -67,24 +67,26 @@ normalise <- function(matrix, margin, method = c("sum", "mean",
 
         if(is.na(ref[1])) {
 
-            switch(method, "tic" =
-                   stop("Raw files of the analyses are necessary for TIC normalisation!"),
-                   "is" =
-                   stop("Please specify a row or column number that represents the internal standard!")
+            switch(method,
+                   "tic" = stop("Raw files of the analyses are necessary for TIC normalisation!"),
+                   "is" = stop("Please specify a row or column number that represents the internal standard!")
                    )
             
         }
 
     }
 
-    ## Normalise data by method chosen matrix.normalised <-
-    switch(method, "sum" = apply(matrix, margin, norm.sum), "mean" =
-    apply(matrix, margin, norm.mean), "median" = apply(matrix, margin,
-    norm.median), "iqr" = apply(matrix, margin, norm.iqr), "tic" =
-    norm.tic(x = matrix, margin = margin, raw.files = ref), "auto" =
-    apply(matrix, margin, norm.auto), "paretro" = apply(matrix,
-    margin, norm.paretro), "range" = apply(matrix, margin,
-    norm.range), "is" = norm.is(x = matrix, margin = margin, is = ref)
+    ## Normalise data by method chosen
+    matrix.normalised <- switch(method,
+                                "sum" = apply(matrix, margin, norm.sum),
+                                "mean" = apply(matrix, margin, norm.mean),
+                                "median" = apply(matrix, margin, norm.median),
+                                "iqr" = apply(matrix, margin, norm.iqr),
+                                "tic" = norm.tic(x = matrix, margin = margin, raw.files = ref),
+                                "auto" = apply(matrix, margin, norm.auto),
+                                "paretro" = apply(matrix, margin, norm.paretro),
+                                "range" = apply(matrix, margin, norm.range),
+                                "is" = norm.is(x = matrix, margin = margin, is = ref)
     )
 
     ## Reconstruct column names after mapply
