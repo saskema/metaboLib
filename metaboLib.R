@@ -376,6 +376,7 @@ evalPCA <- function(matrix,
                     plot = TRUE,
                     annotate.scores = TRUE,
                     annotate.loadings = 10,
+                    colours,
                     classes,
                     scale = FALSE,
                     center = TRUE) {
@@ -408,8 +409,6 @@ evalPCA <- function(matrix,
     }
 
     if(plot == TRUE) {        
-        colours_classes <- c("blue", "red", "green", "black")
-        names(colours_classes) <- levels(classes)
 
         if(annotate.scores == TRUE) {
 
