@@ -68,10 +68,9 @@ normalise <- function(matrix, margin, method = c("sum", "mean",
 
         if(is.na(ref[1])) {
 
-            switch(method, "tic" =
-                   stop("Raw files of the analyses are necessary for TIC normalisation!"),
-                   "is" =
-                   stop("Please specify a row or column number that represents the internal standard!")
+            switch(method,
+                   "tic" = stop("Raw files of the analyses are necessary for TIC normalisation!"),
+                   "is" = stop("Please specify a row or column number that represents the internal standard!")
                    )
             
         }
@@ -254,7 +253,7 @@ evalVolcano <- function(features,
 
     for (i in 1:length(features[, 1])) {
         
-        summary$foldchange[i] <- mean(features.class.2[i, ])/mean(features.class.1[i,])
+        summary$foldchange[i] <- mean(features.class.2[i, ]) / mean(features.class.1[i,])
         
     }
 
@@ -500,6 +499,7 @@ evalPCA <- function(matrix,
                     plot = TRUE,
                     annotate.scores = TRUE,
                     annotate.loadings = 10,
+                    colours,
                     classes,
                     scale = FALSE,
                     center = TRUE) {
@@ -531,19 +531,17 @@ evalPCA <- function(matrix,
 
     }
 
-    if(plot == TRUE) {        
-        colours_classes <- c("blue", "red", "green", "black")
-        names(colours_classes) <- levels(classes)
+    if(plot == TRUE) {
 
         if(annotate.scores == TRUE) {
 
             ## Plot PCA scores with labels
             print(
                 ggplot(data = as.data.frame(pca$x[,1:2]), aes(x = PC1, y = PC2)) +
-                geom_point(size = 3, aes(col = Classes)) +
+                geom_point(size = 3, aes(col = classes)) +
                 geom_text_repel(point.padding = 0.2, data = as.data.frame(pca$x[,1:2]),
                                 aes(label = rownames(matrix))) +
-                scale_color_manual(values = colours_classes) +
+                scale_color_manual(values = colours) +
                 geom_hline(yintercept = 0) +
                 geom_vline(xintercept = 0) +
                 ggtitle("PCA Scores") +
@@ -557,8 +555,8 @@ evalPCA <- function(matrix,
             ## Plot PCA scores without labels
             print(
                 ggplot(data = as.data.frame(pca$x[,1:2]), aes(x = PC1, y = PC2)) +
-                geom_point(size = 3, aes(col = Classes)) +
-                scale_color_manual(values = colours_classes) +
+                geom_point(size = 3, aes(col = classes)) +
+                scale_color_manual(values = colours) +
                 geom_hline(yintercept = 0) +
                 geom_vline(xintercept = 0) +
                 ggtitle("PCA Scores") +
@@ -680,8 +678,8 @@ norm.batch <- function(matrix,
 
         }
 
-        matrix.corrected <- matrix.to.correct / correction.factor[names(correction.factor) != "order"]
-        matrix.post.corr <- cbind(matrix.to.correct, matrix.rest)
+        matrix.corrected <- matrix.to.correct / (1 + correction.factor[names(correction.factor) != "order"])
+        matrix.post.corr <- cbind(matrix.corrected, matrix.rest)
 
         ## Check number of features to plot
         if(!is.na(plot)) {
@@ -725,7 +723,7 @@ norm.batch <- function(matrix,
 
         correction.factor.median <- apply(correction.factor[names(correction.factor) != "order"], 1,
                                           FUN = median)
-        matrix.post.corr <- matrix / correction.factor.median
+        matrix.post.corr <- matrix / (1 + correction.factor.median)
 
     }
 
