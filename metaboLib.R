@@ -539,7 +539,7 @@ norm.single.batch <- function(matrix,
         qc.median <- apply(qc, 2, FUN = median)
 
         ## Calculate the correction factor based on median
-        qc.factor <- (qc.median - qc) / qc.median
+        qc.factor <- apply(qc, 2, norm.factor)
 
         ## Determine correction factor of remaining data points by linear regression
         qc.factor$order <- order[class == "QC"]
@@ -578,7 +578,7 @@ norm.single.batch <- function(matrix,
         qc.median <- apply(qc, 2, FUN = median)
 
         ## Calculate the correction factor based on median
-        qc.factor <- (qc.median - qc) / qc.median
+        qc.factor <- apply(qc, 2, FUN = norm.factor)
 
         ## Determine correction factor of remaining data points by linear regression
         qc.factor$order <- order[class == "QC"]
@@ -761,6 +761,12 @@ norm.is <- function(x, margin, is) {
     }
 
     return(x)
+
+}
+
+nom.factor <- function(x) {
+
+    return((median(x) - x ) / median(x))
 
 }
 
