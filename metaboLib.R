@@ -764,7 +764,7 @@ norm.is <- function(x, margin, is) {
 
 }
 
-nom.factor <- function(x) {
+norm.factor <- function(x) {
 
     return((median(x) - x ) / median(x))
 
